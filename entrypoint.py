@@ -44,6 +44,11 @@ def rclone_cleanup(path: str):
     run(args, check=True)
 
 
+def rclone_rcat(contents: str, dest: str):
+    args = ['rclone', 'rcat', dest]
+    run(args, input=contents, check=True)
+
+
 def cleanup():
     size_limit = environ.get('RCLONE_SIZE_LIMIT')
     if not size_limit:
@@ -63,6 +68,7 @@ def cleanup():
         
         oldest = min(files, key=lambda f: f['ModTime'])
         print(f"Deleting {oldest['Path']}")
+        rclone_rcat('', f'{oldest["Path"]}')
         rclone_delete(oldest['Path'])
 
         deleted = True
