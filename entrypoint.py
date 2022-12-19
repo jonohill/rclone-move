@@ -39,12 +39,19 @@ def rclone_move(source: str, dest: str):
     run(args, check=True)
 
 
+def rclone_cleanup(path: str):
+    args = ['rclone', 'cleanup', path]
+    run(args, check=True)
+
+
 def cleanup():
     size_limit = environ.get('RCLONE_SIZE_LIMIT')
     if not size_limit:
         return
 
     size_limit = int(size_limit)
+
+    deleted = False
 
     while True:
         files = rclone_ls()
@@ -57,6 +64,11 @@ def cleanup():
         oldest = min(files, key=lambda f: f['ModTime'])
         print(f"Deleting {oldest['Path']}")
         rclone_delete(oldest['Path'])
+
+        deleted = True
+
+    if deleted:
+        rclone_cleanup(DEST)
 
 
 def get_file_sizes(dir: str):
@@ -82,8 +94,9 @@ while True:
             else:
                 break
 
-        rclone_move(SOURCE, DEST)
-
         cleanup()
+        rclone_move(SOURCE, DEST)
+        cleanup()
+
     else:
         sleep(60)
