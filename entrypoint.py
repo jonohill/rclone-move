@@ -14,6 +14,8 @@ RCLONE_CONF = '/config/rclone/rclone.conf'
 CONF_SEED = environ.get('RCLONE_CONFIG_SEED')
 SOURCE = environ.get('SOURCE')
 DEST = environ.get('DEST')
+EXTRA_FLAGS = environ.get('RCLONE_EXTRA_FLAGS', None)
+EXTRA_FLAGS = EXTRA_FLAGS.split(',') if EXTRA_FLAGS else []
 
 if not SOURCE or not DEST:
     raise ValueError('SOURCE and DEST must be set')
@@ -30,22 +32,22 @@ def rclone_ls():
 
 
 def rclone_delete(path: str):
-    args = ['rclone', 'delete', f'{DEST}/{path}']
+    args = ['rclone', 'delete', *EXTRA_FLAGS, f'{DEST}/{path}']
     run(args, check=True)
 
 
 def rclone_move(source: str, dest: str):
-    args = ['rclone', 'move', '--progress', '--delete-empty-src-dirs', source, dest]
+    args = ['rclone', 'move', *EXTRA_FLAGS, '--progress', '--delete-empty-src-dirs', source, dest]
     run(args, check=True)
 
 
 def rclone_cleanup(path: str):
-    args = ['rclone', 'cleanup', path]
+    args = ['rclone', 'cleanup', *EXTRA_FLAGS, path]
     run(args, check=True)
 
 
 def rclone_rcat(contents: str, dest: str):
-    args = ['rclone', 'rcat', dest]
+    args = ['rclone', 'rcat', *EXTRA_FLAGS, dest]
     run(args, input=contents, check=True)
 
 
