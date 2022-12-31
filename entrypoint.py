@@ -58,8 +58,6 @@ def cleanup():
 
     size_limit = int(size_limit)
 
-    deleted = False
-
     while True:
         files = rclone_ls()
         usage = sum(f['Size'] for f in files)
@@ -71,12 +69,8 @@ def cleanup():
         oldest = min(files, key=lambda f: f['ModTime'])
         print(f"Deleting {oldest['Path']}")
         rclone_rcat('', f'{oldest["Path"]}')
+        rclone_cleanup(oldest['Path'])
         rclone_delete(oldest['Path'])
-
-        deleted = True
-
-    if deleted:
-        rclone_cleanup(DEST)
 
 
 def get_file_sizes(dir: str):
