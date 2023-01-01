@@ -68,7 +68,7 @@ def cleanup():
         
         oldest = min(files, key=lambda f: f['ModTime'])
         print(f"Deleting {oldest['Path']}")
-        rclone_rcat('', f'{oldest["Path"]}')
+        rclone_rcat('', f"{DEST}/{oldest['Path']}")
         rclone_cleanup(f"{DEST}/{oldest['Path']}")
         rclone_delete(oldest['Path'])
 
