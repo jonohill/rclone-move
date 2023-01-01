@@ -16,6 +16,8 @@ SOURCE = environ.get('SOURCE')
 DEST = environ.get('DEST')
 EXTRA_FLAGS = environ.get('RCLONE_EXTRA_FLAGS', None)
 EXTRA_FLAGS = EXTRA_FLAGS.split(',') if EXTRA_FLAGS else []
+MAX_PATH_LENGTH = environ.get('MAX_PATH_LENGTH', None)
+MAX_PATH_LENGTH = int(MAX_PATH_LENGTH) if MAX_PATH_LENGTH else None
 
 if not SOURCE or not DEST:
     raise ValueError('SOURCE and DEST must be set')
@@ -49,6 +51,22 @@ def rclone_cleanup(path: str):
 def rclone_rcat(contents: str, dest: str):
     args = ['rclone', 'rcat', *EXTRA_FLAGS, dest]
     run(args, input=contents, check=True)
+
+
+def truncate_names(dir: str):
+    if not MAX_PATH_LENGTH:
+        return
+
+    for f in os.scandir(dir):
+        if f.is_dir():
+            truncate_names(f.path)
+        else:
+            if len(f.path) > int(MAX_PATH_LENGTH):
+                path, ext = os.path.splitext(f.path)
+                length = int(MAX_PATH_LENGTH) - len(ext) - 1
+                new_path = f'{path[:length]}{ext}'
+                print(f"Truncating {f.path} to {new_path}")
+                os.rename(f.path, new_path)
 
 
 def cleanup():
@@ -95,6 +113,8 @@ while True:
                 sleep(5)
             else:
                 break
+
+        truncate_names(SOURCE)
 
         cleanup()
         rclone_move(SOURCE, DEST)
