@@ -107,7 +107,7 @@ def refresh_plex(paths: list[str]):
     if not PLEX_PREFIX:
         return
 
-    paths = [f'{PLEX_PREFIX}/{p}' for p in paths]
+    paths = [os.path.join(PLEX_PREFIX, os.path.relpath(p, SOURCE)) for p in paths]
     for lib, path in scan_plex(paths):
         print(f'Plex: Scanned {path} in {lib}')
 
