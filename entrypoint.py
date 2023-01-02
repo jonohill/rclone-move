@@ -9,7 +9,7 @@ from os.path import dirname, isfile
 from subprocess import PIPE, run
 from time import sleep
 
-from .plex_refresh import scan_paths as scan_plex
+from plex_refresh import scan_paths as scan_plex
 
 
 RCLONE_CONF = '/config/rclone/rclone.conf'
