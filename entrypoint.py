@@ -9,6 +9,9 @@ from os.path import dirname, isfile
 from subprocess import PIPE, run
 from time import sleep
 
+from .plex_refresh import scan_paths as scan_plex
+
+
 RCLONE_CONF = '/config/rclone/rclone.conf'
 
 CONF_SEED = environ.get('RCLONE_CONFIG_SEED')
@@ -18,6 +21,7 @@ EXTRA_FLAGS = environ.get('RCLONE_EXTRA_FLAGS', None)
 EXTRA_FLAGS = EXTRA_FLAGS.split(',') if EXTRA_FLAGS else []
 MAX_PATH_LENGTH = environ.get('MAX_PATH_LENGTH', None)
 MAX_PATH_LENGTH = int(MAX_PATH_LENGTH) if MAX_PATH_LENGTH else None
+PLEX_PREFIX = environ.get('PLEX_PREFIX', None)
 
 if not SOURCE or not DEST:
     raise ValueError('SOURCE and DEST must be set')
@@ -99,15 +103,27 @@ def get_file_sizes(dir: str):
             yield (os.path.join(dir, f.name), f.stat().st_size)
 
 
+def refresh_plex(paths: list[str]):
+    if not PLEX_PREFIX:
+        return
+
+    paths = [f'{PLEX_PREFIX}/{p}' for p in paths]
+    for lib, path in scan_plex(paths):
+        print(f'Plex: Scanned {path} in {lib}')
+
+
 while True:
     # if source dir not empty
     if glob(f'{SOURCE}/*'):
 
         # wait for files to stop changing
+        file_paths = []
         files = ""
         while True:
             print("Waiting for files to stop changing...")
-            new_files = ','.join(f'{f} {s}' for f, s in get_file_sizes(SOURCE))
+            file_sizes = list(get_file_sizes(SOURCE))
+            new_files = ','.join(f'{f} {s}' for f, s in file_sizes)
+            file_paths = [f for f, _ in file_sizes]
             if files != new_files:
                 files = new_files
                 sleep(5)
@@ -119,6 +135,9 @@ while True:
         cleanup()
         rclone_move(SOURCE, DEST)
         cleanup()
+
+        dirs = list(set(dirname(f) for f in file_paths))
+        refresh_plex(dirs)
 
     else:
         sleep(60)

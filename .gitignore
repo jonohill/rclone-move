@@ -1,1 +1,3 @@
 *.ps1
+__init__.py
+plex_refresh.py
