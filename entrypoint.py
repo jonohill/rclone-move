@@ -105,9 +105,11 @@ def get_file_sizes(dir: str):
 
 def refresh_plex(paths: list[str]):
     if not PLEX_PREFIX:
+        print('Plex: No prefix set, skipping')
         return
 
     paths = [os.path.join(PLEX_PREFIX, os.path.relpath(p, SOURCE)) for p in paths]
+    print(f'Plex: Refreshing {paths}')
     for lib, path in scan_plex(paths):
         print(f'Plex: Scanned {path} in {lib}')
 
