@@ -32,7 +32,13 @@ if CONF_SEED and not isfile(RCLONE_CONF):
         f.write(b64decode(CONF_SEED).decode('utf-8'))
 
 def rclone_ls():
-    args = ['rclone', 'lsjson', '--recursive', '--files-only', DEST]
+    args = ['rclone', 'lsjson', 
+        '--recursive', 
+        '--files-only',
+        '--no-mimetype',
+        *EXTRA_FLAGS,
+        DEST
+    ]
     result = run(args, stdout=PIPE, text=True)
     return load_json(result.stdout)
 
@@ -133,13 +139,11 @@ while True:
                 break
 
         truncate_names(SOURCE)
-
-        cleanup()
         rclone_move(SOURCE, DEST)
-        cleanup()
 
         dirs = list(set(dirname(f) for f in file_paths))
         refresh_plex(dirs)
 
+        cleanup()
     else:
         sleep(60)
