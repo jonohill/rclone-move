@@ -7,10 +7,11 @@ from json import loads as load_json
 from os import environ, makedirs
 from os.path import dirname, isfile
 from subprocess import PIPE, run
+from threading import Thread
 from time import sleep
+from typing import Optional
 
 from plex_refresh import scan_paths as scan_plex
-
 
 RCLONE_CONF = '/config/rclone/rclone.conf'
 
@@ -36,6 +37,7 @@ def rclone_ls():
         '--recursive', 
         '--files-only',
         '--no-mimetype',
+        '--tpslimit', '1',
         *EXTRA_FLAGS,
         DEST
     ]
@@ -78,27 +80,36 @@ def truncate_names(dir: str):
                 print(f"Truncating {f.path} to {new_path}")
                 os.rename(f.path, new_path)
 
+cleanup_thread: Optional[Thread] = None
 
 def cleanup():
-    size_limit = environ.get('RCLONE_SIZE_LIMIT')
-    if not size_limit:
-        return
+    def _cleanup():
+        size_limit = environ.get('RCLONE_SIZE_LIMIT')
+        if not size_limit:
+            return
 
-    size_limit = int(size_limit)
+        size_limit = int(size_limit)
 
-    while True:
-        files = rclone_ls()
-        usage = sum(f['Size'] for f in files)
-        if usage < size_limit:
-            break
+        while True:
+            files = rclone_ls()
+            usage = sum(f['Size'] for f in files)
+            if usage < size_limit:
+                break
 
-        print(f"Destination usage is {usage}, which is greater than {size_limit}, cleaning up")
-        
-        oldest = min(files, key=lambda f: f['ModTime'])
-        print(f"Deleting {oldest['Path']}")
-        rclone_rcat('', f"{DEST}/{oldest['Path']}")
-        rclone_cleanup(f"{DEST}/{oldest['Path']}")
-        rclone_delete(oldest['Path'])
+            print(f"Destination usage is {usage}, which is greater than {size_limit}, cleaning up")
+            
+            oldest = min(files, key=lambda f: f['ModTime'])
+            print(f"Deleting {oldest['Path']}")
+            rclone_rcat('', f"{DEST}/{oldest['Path']}")
+            rclone_cleanup(f"{DEST}/{oldest['Path']}")
+            rclone_delete(oldest['Path'])
+
+    global cleanup_thread
+    if cleanup_thread and cleanup_thread.is_alive():
+        print('Cleanup already running')
+    else:
+        cleanup_thread = Thread(target=_cleanup)
+        cleanup_thread.start()
 
 
 def get_file_sizes(dir: str):
