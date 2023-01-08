@@ -90,8 +90,8 @@ def cleanup():
 
         size_limit = int(size_limit)
 
+        files: list = rclone_ls()
         while True:
-            files = rclone_ls()
             usage = sum(f['Size'] for f in files)
             if usage < size_limit:
                 break
@@ -103,6 +103,7 @@ def cleanup():
             rclone_rcat('', f"{DEST}/{oldest['Path']}")
             rclone_cleanup(f"{DEST}/{oldest['Path']}")
             rclone_delete(oldest['Path'])
+            files.remove(oldest)
 
     global cleanup_thread
     if cleanup_thread and cleanup_thread.is_alive():
