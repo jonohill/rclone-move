@@ -132,32 +132,38 @@ def refresh_plex(paths: list[str]):
         print(f'Plex: Scanned {path} in {lib}')
 
 
-while True:
-    # if source dir not empty
-    if glob(f'{SOURCE}/*'):
+try:
+    while True:
+        # if source dir not empty
+        if glob(f'{SOURCE}/*'):
 
-        # wait for files to stop changing
-        file_paths = []
-        files = ""
-        while True:
-            print("Waiting for files to stop changing...")
-            file_sizes = list(get_file_sizes(SOURCE))
-            new_files = ','.join(f'{f} {s}' for f, s in file_sizes)
-            file_paths = [f for f, _ in file_sizes]
-            if files != new_files:
-                files = new_files
-                sleep(5)
-            else:
-                break
+            # wait for files to stop changing
+            file_paths = []
+            files = ""
+            while True:
+                print("Waiting for files to stop changing...")
+                file_sizes = list(get_file_sizes(SOURCE))
+                new_files = ','.join(f'{f} {s}' for f, s in file_sizes)
+                file_paths = [f for f, _ in file_sizes]
+                if files != new_files:
+                    files = new_files
+                    sleep(5)
+                else:
+                    break
 
-        cleanup()
-        
-        truncate_names(SOURCE)
-        rclone_move(SOURCE, DEST)
+            cleanup()
 
-        dirs = list(set(dirname(f) for f in file_paths))
-        refresh_plex(dirs)
+            truncate_names(SOURCE)
+            rclone_move(SOURCE, DEST)
 
-        cleanup()
-    else:
-        sleep(60)
+            dirs = list(set(dirname(f) for f in file_paths))
+            refresh_plex(dirs)
+
+            cleanup()
+        else:
+            sleep(60)
+except Exception:
+    if cleanup_thread and cleanup_thread.is_alive():
+        print('Error during move, waiting for cleanup to finish before exiting')
+        cleanup_thread.join()
+    raise
