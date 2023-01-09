@@ -37,7 +37,7 @@ def rclone_ls():
         '--recursive', 
         '--files-only',
         '--no-mimetype',
-        '--tpslimit', '1',
+        '--tpslimit', '4',
         *EXTRA_FLAGS,
         DEST
     ]
@@ -150,6 +150,8 @@ while True:
             else:
                 break
 
+        cleanup()
+        
         truncate_names(SOURCE)
         rclone_move(SOURCE, DEST)
 
