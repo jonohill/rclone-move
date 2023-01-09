@@ -55,8 +55,8 @@ def rclone_move(source: str, dest: str):
     run(args, check=True)
 
 
-def rclone_cleanup(path: str):
-    args = ['rclone', 'cleanup', *EXTRA_FLAGS, path]
+def rclone_touch(path: str):
+    args = ['rclone', 'touch', *EXTRA_FLAGS, path]
     run(args, check=True)
 
 
@@ -101,7 +101,7 @@ def cleanup():
             oldest = min(files, key=lambda f: f['ModTime'])
             print(f"Deleting {oldest['Path']}")
             rclone_rcat('', f"{DEST}/{oldest['Path']}")
-            rclone_cleanup(f"{DEST}/{oldest['Path']}")
+            rclone_touch(f"{DEST}/{oldest['Path']}")
             rclone_delete(oldest['Path'])
             files.remove(oldest)
 
