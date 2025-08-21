@@ -9,19 +9,26 @@ from os.path import dirname, isfile
 from subprocess import PIPE, run
 from threading import Thread
 from time import sleep
-from typing import Optional
+from typing import Generator, Optional, List, TypedDict
 
 from plex_refresh import scan_paths as scan_plex
+
+
+class RcloneItem(TypedDict):
+    Path: str
+    Size: int  
+    ModTime: str
+
 
 RCLONE_CONF = '/config/rclone/rclone.conf'
 
 CONF_SEED = environ.get('RCLONE_CONFIG_SEED')
 SOURCE = environ.get('SOURCE')
 DEST = environ.get('DEST')
-EXTRA_FLAGS = environ.get('RCLONE_EXTRA_FLAGS', None)
-EXTRA_FLAGS = EXTRA_FLAGS.split(',') if EXTRA_FLAGS else []
-MAX_PATH_LENGTH = environ.get('MAX_PATH_LENGTH', None)
-MAX_PATH_LENGTH = int(MAX_PATH_LENGTH) if MAX_PATH_LENGTH else None
+RCLONE_EXTRA_FLAGS = environ.get('RCLONE_EXTRA_FLAGS', None)
+EXTRA_FLAGS = RCLONE_EXTRA_FLAGS.split(',') if RCLONE_EXTRA_FLAGS else []
+MAX_PATH_LENGTH_STR = environ.get('MAX_PATH_LENGTH', None)
+MAX_PATH_LENGTH = int(MAX_PATH_LENGTH_STR) if MAX_PATH_LENGTH_STR else None
 PLEX_PREFIX = environ.get('PLEX_PREFIX', None)
 
 if not SOURCE or not DEST:
@@ -32,7 +39,8 @@ if CONF_SEED and not isfile(RCLONE_CONF):
     with open(RCLONE_CONF, 'w') as f:
         f.write(b64decode(CONF_SEED).decode('utf-8'))
 
-def rclone_ls():
+def rclone_ls() -> List[RcloneItem]:
+    assert DEST
     args = ['rclone', 'lsjson', 
         '--recursive', 
         '--files-only',
@@ -90,7 +98,7 @@ def cleanup():
 
         size_limit = int(size_limit)
 
-        files: list = rclone_ls()
+        files: List[RcloneItem] = rclone_ls()
         while True:
             usage = sum(f['Size'] for f in files)
             if usage < size_limit:
@@ -113,7 +121,7 @@ def cleanup():
         cleanup_thread.start()
 
 
-def get_file_sizes(dir: str):
+def get_file_sizes(dir: str) -> Generator[tuple[str, int], None, None]:
     for f in os.scandir(dir):
         if f.is_dir():
             yield from get_file_sizes(f.path)
