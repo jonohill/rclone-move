@@ -164,7 +164,7 @@ try:
             prev_file_sizes = {}
             continue
 
-        include_files: list[str] = []
+        include_files: list[str] | None = []
         new_file_sizes = dict(get_file_sizes(SOURCE))
         for f, size in new_file_sizes.items():
             # if file hasn't changed size since last round, 
@@ -172,18 +172,22 @@ try:
             if f in prev_file_sizes and prev_file_sizes[f] == size:
                 include_files.append(os.path.relpath(f, SOURCE))
 
-            if len(include_files) > 0:
+        if len(include_files) > 0:
+            if len(include_files) == len(new_file_sizes):
+                print("All files ready, moving all")
+                include_files = None
+            else:
                 print(f"Files ready to move: {include_files}")
 
-                cleanup()
+            cleanup()
 
-                truncate_names(SOURCE)
-                rclone_move(SOURCE, DEST, include_files)
+            truncate_names(SOURCE)
+            rclone_move(SOURCE, DEST, include_files)
 
-                dirs = list(set(dirname(f) for f in include_files))
-                refresh_plex(dirs)
+            dirs = list(set(dirname(f) for f in (include_files or new_file_sizes.keys())))
+            refresh_plex(dirs)
 
-                cleanup()
+            cleanup()
 
         prev_file_sizes = new_file_sizes
 except Exception:
