@@ -184,6 +184,8 @@ try:
                 refresh_plex(dirs)
 
                 cleanup()
+
+        prev_file_sizes = new_file_sizes
 except Exception:
     if cleanup_thread and cleanup_thread.is_alive():
         print('Error during move, waiting for cleanup to finish before exiting')
