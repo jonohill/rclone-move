@@ -16,7 +16,7 @@ from plex_refresh import scan_paths as scan_plex
 
 class RcloneItem(TypedDict):
     Path: str
-    Size: int  
+    Size: int
     ModTime: str
 
 
@@ -41,8 +41,8 @@ if CONF_SEED and not isfile(RCLONE_CONF):
 
 def rclone_ls() -> List[RcloneItem]:
     assert DEST
-    args = ['rclone', 'lsjson', 
-        '--recursive', 
+    args = ['rclone', 'lsjson',
+        '--recursive',
         '--files-only',
         '--no-mimetype',
         '--tpslimit', '4',
@@ -58,9 +58,19 @@ def rclone_delete(path: str):
     run(args, check=True)
 
 
-def rclone_move(source: str, dest: str):
-    args = ['rclone', 'move', *EXTRA_FLAGS, '--progress', '--delete-empty-src-dirs', source, dest]
-    run(args, check=True)
+def rclone_move(source: str, dest: str, include_files: Optional[List[str]] = None):
+    args = ['rclone', 'move', *EXTRA_FLAGS, '--progress', '--delete-empty-src-dirs']
+
+    if include_files:
+        args.extend(['--include-from', '-'])
+
+    args.extend([source, dest])
+
+    if include_files:
+        include_input = '\n'.join(include_files) + '\n'
+        run(args, input=include_input, text=True, check=True)
+    else:
+        run(args, check=True)
 
 
 def rclone_touch(path: str):
@@ -141,35 +151,39 @@ def refresh_plex(paths: list[str]):
 
 
 try:
+    prev_file_sizes: dict[str, int] = {}
+
     while True:
-        # if source dir not empty
+        sleep(5)
+
         if glob(f'{SOURCE}/*'):
-
-            # wait for files to stop changing
-            file_paths = []
-            files = ""
-            while True:
-                print("Waiting for files to stop changing...")
-                file_sizes = list(get_file_sizes(SOURCE))
-                new_files = ','.join(f'{f} {s}' for f, s in file_sizes)
-                file_paths = [f for f, _ in file_sizes]
-                if files != new_files:
-                    files = new_files
-                    sleep(5)
-                else:
-                    break
-
-            cleanup()
-
-            truncate_names(SOURCE)
-            rclone_move(SOURCE, DEST)
-
-            dirs = list(set(dirname(f) for f in file_paths))
-            refresh_plex(dirs)
-
-            cleanup()
+            # not empty dir
+            print("Waiting for files to stop changing...")
         else:
-            sleep(60)
+            # empty dir
+            prev_file_sizes = {}
+            continue
+
+        include_files: list[str] = []
+        new_file_sizes = dict(get_file_sizes(SOURCE))
+        for f, size in new_file_sizes.items():
+            # if file hasn't changed size since last round, 
+            # assume it's done and should be included
+            if f in prev_file_sizes and prev_file_sizes[f] == size:
+                include_files.append(os.path.relpath(f, SOURCE))
+
+            if len(include_files) > 0:
+                print(f"Files ready to move: {include_files}")
+
+                cleanup()
+
+                truncate_names(SOURCE)
+                rclone_move(SOURCE, DEST, include_files)
+
+                dirs = list(set(dirname(f) for f in include_files))
+                refresh_plex(dirs)
+
+                cleanup()
 except Exception:
     if cleanup_thread and cleanup_thread.is_alive():
         print('Error during move, waiting for cleanup to finish before exiting')
