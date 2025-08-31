@@ -39,17 +39,18 @@ if CONF_SEED and not isfile(RCLONE_CONF):
     with open(RCLONE_CONF, 'w') as f:
         f.write(b64decode(CONF_SEED).decode('utf-8'))
 
-def rclone_ls() -> List[RcloneItem]:
-    assert DEST
+def rclone_ls(dir: str) -> List[RcloneItem] | None:
     args = ['rclone', 'lsjson',
         '--recursive',
         '--files-only',
         '--no-mimetype',
         '--tpslimit', '4',
         *EXTRA_FLAGS,
-        DEST
+        dir
     ]
     result = run(args, stdout=PIPE, text=True)
+    if result.returncode != 0:
+        return None
     return load_json(result.stdout)
 
 
@@ -108,7 +109,8 @@ def cleanup():
 
         size_limit = int(size_limit)
 
-        files: List[RcloneItem] = rclone_ls()
+        assert DEST, "DEST must be set"
+        files: List[RcloneItem] = rclone_ls(DEST) or []
         while True:
             usage = sum(f['Size'] for f in files)
             if usage < size_limit:
@@ -178,6 +180,16 @@ try:
                 include_files = None
             else:
                 print(f"Files ready to move: {include_files}")
+
+            # prioritise potentially existing files as this should result
+            # in cleaning up the source dir faster
+            existing_files: list[str] = []
+            for f in include_files or new_file_sizes.keys():
+                if rclone_ls(f):
+                    existing_files.append(f)
+            if existing_files:
+                include_files = existing_files
+                print(f"Of which {existing_files} already exist at destination, moving those first")
 
             cleanup()
 
