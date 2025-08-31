@@ -2,6 +2,7 @@
 
 import os
 from base64 import b64decode
+from concurrent.futures import ThreadPoolExecutor
 from glob import glob
 from json import loads as load_json
 from os import environ, makedirs
@@ -82,6 +83,29 @@ def rclone_touch(path: str):
 def rclone_rcat(contents: str, dest: str):
     args = ['rclone', 'rcat', *EXTRA_FLAGS, dest]
     run(args, input=contents, check=True)
+
+
+def check_file_exists(file_path: str) -> tuple[str, bool]:
+    """Check if a file exists at the destination. Returns (file_path, exists)."""
+    exists = bool(rclone_ls(f'{DEST}/{file_path}'))
+    return (file_path, exists)
+
+
+def get_existing_files(include_files: List[str]) -> List[str]:
+    """Check which files already exist at the destination using parallel processing."""
+    existing_files: List[str] = []
+    
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        # Submit all file existence checks
+        future_to_file = {executor.submit(check_file_exists, f): f for f in include_files}
+        
+        # Collect results
+        for future in future_to_file:
+            file_path, exists = future.result()
+            if exists:
+                existing_files.append(file_path)
+    
+    return existing_files
 
 
 def truncate_names(dir: str):
@@ -179,10 +203,7 @@ try:
         if len(include_files) > 0:
             # prioritise potentially existing files as this should result
             # in cleaning up the source dir faster
-            existing_files: list[str] = []
-            for f in include_files:
-                if rclone_ls(f'{DEST}/{f}'):
-                    existing_files.append(f)
+            existing_files = get_existing_files(include_files)
             if existing_files:
                 include_files = existing_files
                 print(f"Of which {existing_files} already exist at destination, moving those first")
