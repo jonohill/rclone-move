@@ -166,6 +166,8 @@ try:
             prev_file_sizes = {}
             continue
 
+        truncate_names(SOURCE)
+
         include_files: list[str] | None = []
         new_file_sizes = dict(get_file_sizes(SOURCE))
         for f, size in new_file_sizes.items():
@@ -175,17 +177,11 @@ try:
                 include_files.append(os.path.relpath(f, SOURCE))
 
         if len(include_files) > 0:
-            if len(include_files) == len(new_file_sizes):
-                print("All files ready, moving all")
-                include_files = None
-            else:
-                print(f"Files ready to move: {include_files}")
-
             # prioritise potentially existing files as this should result
             # in cleaning up the source dir faster
             existing_files: list[str] = []
-            for f in include_files or new_file_sizes.keys():
-                if rclone_ls(f):
+            for f in include_files:
+                if rclone_ls(f'{DEST}/{f}'):
                     existing_files.append(f)
             if existing_files:
                 include_files = existing_files
@@ -193,7 +189,10 @@ try:
 
             cleanup()
 
-            truncate_names(SOURCE)
+            if len(include_files) == len(new_file_sizes):
+                include_files = None
+                print("All files appear to be done, moving all")
+
             rclone_move(SOURCE, DEST, include_files)
 
             dirs = list(set(dirname(f) for f in (include_files or new_file_sizes.keys())))
