@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import sys
 from base64 import b64decode
 from concurrent.futures import ThreadPoolExecutor
 from glob import glob
@@ -28,6 +29,8 @@ SOURCE = environ.get('SOURCE')
 DEST = environ.get('DEST')
 RCLONE_EXTRA_FLAGS = environ.get('RCLONE_EXTRA_FLAGS', None)
 EXTRA_FLAGS = RCLONE_EXTRA_FLAGS.split(',') if RCLONE_EXTRA_FLAGS else []
+# Add any command-line arguments passed to the script
+CMD_ARGS = sys.argv[1:]
 MAX_PATH_LENGTH_STR = environ.get('MAX_PATH_LENGTH', None)
 MAX_PATH_LENGTH = int(MAX_PATH_LENGTH_STR) if MAX_PATH_LENGTH_STR else None
 PLEX_PREFIX = environ.get('PLEX_PREFIX', None)
@@ -47,6 +50,7 @@ def rclone_ls(dir: str) -> List[RcloneItem] | None:
         '--no-mimetype',
         '--tpslimit', '4',
         *EXTRA_FLAGS,
+        *CMD_ARGS,
         dir
     ]
     result = run(args, stdout=PIPE, text=True)
@@ -56,12 +60,12 @@ def rclone_ls(dir: str) -> List[RcloneItem] | None:
 
 
 def rclone_delete(path: str):
-    args = ['rclone', 'delete', *EXTRA_FLAGS, f'{DEST}/{path}']
+    args = ['rclone', 'delete', *EXTRA_FLAGS, *CMD_ARGS, f'{DEST}/{path}']
     run(args, check=True)
 
 
 def rclone_move(source: str, dest: str, include_files: Optional[List[str]] = None):
-    args = ['rclone', 'move', *EXTRA_FLAGS, '--progress', '--delete-empty-src-dirs']
+    args = ['rclone', 'move', *EXTRA_FLAGS, *CMD_ARGS, '--progress', '--delete-empty-src-dirs']
 
     if include_files:
         args.extend(['--include-from', '-'])
@@ -76,12 +80,12 @@ def rclone_move(source: str, dest: str, include_files: Optional[List[str]] = Non
 
 
 def rclone_touch(path: str):
-    args = ['rclone', 'touch', *EXTRA_FLAGS, path]
+    args = ['rclone', 'touch', *EXTRA_FLAGS, *CMD_ARGS, path]
     run(args, check=True)
 
 
 def rclone_rcat(contents: str, dest: str):
-    args = ['rclone', 'rcat', *EXTRA_FLAGS, dest]
+    args = ['rclone', 'rcat', *EXTRA_FLAGS, *CMD_ARGS, dest]
     run(args, input=contents, check=True)
 
 
