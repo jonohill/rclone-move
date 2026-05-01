@@ -1,4 +1,4 @@
-FROM rclone/rclone:1.73.5
+FROM rclone/rclone:1.74.0
 
 RUN apk add --no-cache --update \
         py3-requests \
