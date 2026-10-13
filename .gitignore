@@ -2,3 +2,4 @@
 __init__.py
 plex_refresh.py
 .DS_Store
+__pycache__/
