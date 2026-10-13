@@ -265,3 +265,23 @@ def test_move_without_status_dir(fake_rclone, source, tmp_path, monkeypatch):
     entrypoint.rclone_move(str(source), str(tmp_path / "dest"))
 
     assert not list(tmp_path.glob("**/status.json"))
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        ["TV/Show/a.mkv", "TV/Show/b.mkv", "c.mkv"],
+        ["/src/TV/Show/a.mkv", "/src/TV/Show/b.mkv", "/src/c.mkv"],
+    ],
+)
+def test_plex_refresh_paths(files, monkeypatch):
+    scanned: list[str] = []
+    monkeypatch.setattr(entrypoint, "SOURCE", "/src")
+    monkeypatch.setattr(entrypoint, "PLEX_PREFIX", "/plex")
+    monkeypatch.setattr(
+        entrypoint, "scan_plex", lambda paths: scanned.extend(paths) or []
+    )
+
+    entrypoint.refresh_plex(entrypoint.moved_dirs("/src", files))
+
+    assert sorted(scanned) == ["/plex/.", "/plex/TV/Show"]

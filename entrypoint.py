@@ -13,7 +13,7 @@ from os.path import dirname, isfile
 from subprocess import PIPE, CalledProcessError, Popen, run
 from threading import Thread
 from time import sleep, time
-from typing import Any, Generator, List, Optional, TypedDict
+from typing import Any, Generator, Iterable, List, Optional, TypedDict
 
 from plex_refresh import scan_paths as scan_plex
 
@@ -262,6 +262,11 @@ def get_file_sizes(dir: str) -> Generator[tuple[str, int], None, None]:
             yield (os.path.join(dir, f.name), f.stat().st_size)
 
 
+def moved_dirs(source: str, files: Iterable[str]) -> list[str]:
+    """Absolute directories containing `files`, which may be absolute or relative to `source`."""
+    return list({dirname(os.path.join(source, f)) for f in files})
+
+
 def refresh_plex(paths: list[str]):
     if not PLEX_PREFIX:
         print("Plex: No prefix set, skipping")
@@ -330,10 +335,7 @@ def main():
 
                 rclone_move(SOURCE, DEST, include_files)
 
-                dirs = list(
-                    set(dirname(f) for f in (include_files or new_file_sizes.keys()))
-                )
-                refresh_plex(dirs)
+                refresh_plex(moved_dirs(SOURCE, include_files or new_file_sizes))
 
                 cleanup()
 
