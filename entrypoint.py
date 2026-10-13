@@ -5,13 +5,15 @@ import sys
 from base64 import b64decode
 from concurrent.futures import ThreadPoolExecutor
 from glob import glob
+from json import JSONDecodeError
+from json import dump as dump_json
 from json import loads as load_json
 from os import environ, makedirs
 from os.path import dirname, isfile
-from subprocess import PIPE, run
+from subprocess import PIPE, CalledProcessError, Popen, run
 from threading import Thread
-from time import sleep
-from typing import Generator, List, Optional, TypedDict
+from time import sleep, time
+from typing import Any, Generator, List, Optional, TypedDict
 
 from plex_refresh import scan_paths as scan_plex
 
@@ -34,14 +36,33 @@ CMD_ARGS = sys.argv[1:]
 MAX_PATH_LENGTH_STR = environ.get("MAX_PATH_LENGTH", None)
 MAX_PATH_LENGTH = int(MAX_PATH_LENGTH_STR) if MAX_PATH_LENGTH_STR else None
 PLEX_PREFIX = environ.get("PLEX_PREFIX", None)
+STATUS_DIR = environ.get("STATUS_DIR", None)
 
-if not SOURCE or not DEST:
-    raise ValueError("SOURCE and DEST must be set")
+status: dict[str, Any] = {
+    "updated_at": None,
+    "state": "idle",
+    "move": None,
+    "last_move": None,
+}
 
-if CONF_SEED and not isfile(RCLONE_CONF):
-    makedirs(dirname(RCLONE_CONF), exist_ok=True)
-    with open(RCLONE_CONF, "w") as f:
-        f.write(b64decode(CONF_SEED).decode("utf-8"))
+
+def write_status(**changes: Any):
+    """Merge changes into the status and write it out, if STATUS_DIR is set."""
+    if not STATUS_DIR:
+        return
+
+    status.update(changes)
+    status["updated_at"] = time()
+
+    path = os.path.join(STATUS_DIR, "status.json")
+    # Not mkstemp: its 0600 mode would hide the file from a reader running as another user
+    tmp_path = f"{path}.tmp"
+    try:
+        with open(tmp_path, "w") as f:
+            dump_json(status, f)
+        os.replace(tmp_path, path)
+    except OSError as e:
+        print(f"Failed to write status: {e}")
 
 
 def rclone_ls(dir: str) -> List[RcloneItem] | None:
@@ -68,13 +89,34 @@ def rclone_delete(path: str):
     run(args, check=True)
 
 
+def parse_log_line(line: str) -> tuple[str, Optional[dict[str, Any]]]:
+    """Return the text to print for an rclone --use-json-log line, and its stats if any."""
+    line = line.rstrip("\n")
+    try:
+        entry = load_json(line)
+    except JSONDecodeError:
+        return line, None
+    if not isinstance(entry, dict):
+        return line, None
+
+    msg = str(entry.get("msg", "")).strip()
+    if entry.get("object"):
+        msg = f"{entry['object']}: {msg}"
+    return msg, entry.get("stats")
+
+
 def rclone_move(source: str, dest: str, include_files: Optional[List[str]] = None):
     args = [
         "rclone",
         "move",
         *EXTRA_FLAGS,
         *CMD_ARGS,
-        "--progress",
+        "--use-json-log",
+        "--stats",
+        "10s",
+        # stats are logged at INFO by default, which the default log level hides
+        "--stats-log-level",
+        "NOTICE",
         "--delete-empty-src-dirs",
     ]
 
@@ -83,11 +125,39 @@ def rclone_move(source: str, dest: str, include_files: Optional[List[str]] = Non
 
     args.extend([source, dest])
 
+    paths = include_files or [
+        os.path.relpath(f, source) for f, _ in get_file_sizes(source)
+    ]
+    move: dict[str, Any] = {"started_at": time(), "stats": None}
+    write_status(state="moving", move=move)
+
+    proc = Popen(args, stdin=PIPE if include_files else None, stderr=PIPE, text=True)
     if include_files:
-        include_input = "\n".join(include_files) + "\n"
-        run(args, input=include_input, text=True, check=True)
-    else:
-        run(args, check=True)
+        assert proc.stdin
+        proc.stdin.write("\n".join(include_files) + "\n")
+        proc.stdin.close()
+
+    assert proc.stderr
+    for line in proc.stderr:
+        text, stats = parse_log_line(line)
+        print(text)
+        if stats is not None:
+            move["stats"] = stats
+            write_status(move=move)
+    returncode = proc.wait()
+
+    write_status(
+        state=loop_state(bool(glob(f"{source}/*"))),
+        move=None,
+        last_move={
+            "finished_at": time(),
+            "ok": returncode == 0,
+            "paths": paths,
+            "bytes": (move["stats"] or {}).get("bytes", 0),
+        },
+    )
+    if returncode != 0:
+        raise CalledProcessError(returncode, args)
 
 
 def rclone_touch(path: str):
@@ -178,6 +248,12 @@ def cleanup():
         cleanup_thread.start()
 
 
+def loop_state(source_has_files: bool) -> str:
+    if cleanup_thread and cleanup_thread.is_alive():
+        return "cleanup"
+    return "waiting" if source_has_files else "idle"
+
+
 def get_file_sizes(dir: str) -> Generator[tuple[str, int], None, None]:
     for f in os.scandir(dir):
         if f.is_dir():
@@ -197,58 +273,77 @@ def refresh_plex(paths: list[str]):
         print(f"Plex: Scanned {path} in {lib}")
 
 
-try:
-    prev_file_sizes: dict[str, int] = {}
+def main():
+    if not SOURCE or not DEST:
+        raise ValueError("SOURCE and DEST must be set")
 
-    while True:
-        sleep(30)
+    if CONF_SEED and not isfile(RCLONE_CONF):
+        makedirs(dirname(RCLONE_CONF), exist_ok=True)
+        with open(RCLONE_CONF, "w") as f:
+            f.write(b64decode(CONF_SEED).decode("utf-8"))
 
-        if glob(f"{SOURCE}/*"):
-            # not empty dir
-            print("Waiting for files to stop changing...")
-        else:
-            # empty dir
-            prev_file_sizes = {}
-            continue
+    if STATUS_DIR:
+        makedirs(STATUS_DIR, exist_ok=True)
 
-        truncate_names(SOURCE)
+    try:
+        prev_file_sizes: dict[str, int] = {}
 
-        include_files: list[str] | None = []
-        new_file_sizes = dict(get_file_sizes(SOURCE))
-        for f, size in new_file_sizes.items():
-            # if file hasn't changed size since last round,
-            # assume it's done and should be included
-            if f in prev_file_sizes and prev_file_sizes[f] == size:
-                include_files.append(os.path.relpath(f, SOURCE))
+        while True:
+            sleep(30)
 
-        if len(include_files) > 0:
-            # prioritise potentially existing files as this should result
-            # in cleaning up the source dir faster
-            existing_files = get_existing_files(include_files)
-            if existing_files:
-                include_files = existing_files
-                print(
-                    f"Of which {existing_files} already exist at destination, moving those first"
+            source_has_files = bool(glob(f"{SOURCE}/*"))
+            write_status(state=loop_state(source_has_files))
+
+            if source_has_files:
+                # not empty dir
+                print("Waiting for files to stop changing...")
+            else:
+                # empty dir
+                prev_file_sizes = {}
+                continue
+
+            truncate_names(SOURCE)
+
+            include_files: list[str] | None = []
+            new_file_sizes = dict(get_file_sizes(SOURCE))
+            for f, size in new_file_sizes.items():
+                # if file hasn't changed size since last round,
+                # assume it's done and should be included
+                if f in prev_file_sizes and prev_file_sizes[f] == size:
+                    include_files.append(os.path.relpath(f, SOURCE))
+
+            if len(include_files) > 0:
+                # prioritise potentially existing files as this should result
+                # in cleaning up the source dir faster
+                existing_files = get_existing_files(include_files)
+                if existing_files:
+                    include_files = existing_files
+                    print(
+                        f"Of which {existing_files} already exist at destination, moving those first"
+                    )
+
+                cleanup()
+
+                if len(include_files) == len(new_file_sizes):
+                    include_files = None
+                    print("All files appear to be done, moving all")
+
+                rclone_move(SOURCE, DEST, include_files)
+
+                dirs = list(
+                    set(dirname(f) for f in (include_files or new_file_sizes.keys()))
                 )
+                refresh_plex(dirs)
 
-            cleanup()
+                cleanup()
 
-            if len(include_files) == len(new_file_sizes):
-                include_files = None
-                print("All files appear to be done, moving all")
+            prev_file_sizes = new_file_sizes
+    except Exception:
+        if cleanup_thread and cleanup_thread.is_alive():
+            print("Error during move, waiting for cleanup to finish before exiting")
+            cleanup_thread.join()
+        raise
 
-            rclone_move(SOURCE, DEST, include_files)
 
-            dirs = list(
-                set(dirname(f) for f in (include_files or new_file_sizes.keys()))
-            )
-            refresh_plex(dirs)
-
-            cleanup()
-
-        prev_file_sizes = new_file_sizes
-except Exception:
-    if cleanup_thread and cleanup_thread.is_alive():
-        print("Error during move, waiting for cleanup to finish before exiting")
-        cleanup_thread.join()
-    raise
+if __name__ == "__main__":
+    main()
